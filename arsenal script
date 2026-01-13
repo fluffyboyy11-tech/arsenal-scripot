@@ -1,0 +1,413 @@
+-- SERVICES
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local plr = Players.LocalPlayer
+local cam = workspace.CurrentCamera
+
+--------------------------------------------------
+-- SETTINGS
+--------------------------------------------------
+local aimbotEnabled = true
+local espEnabled = true
+local espBoxesEnabled = true
+local espTracersEnabled = true
+local flyEnabled = false
+local fovCircleEnabled = true
+local teamCheckEnabled = true -- team check toggle
+
+local walkSpeed = 16
+local flySpeed = 60
+local fovRadius = 120
+
+--------------------------------------------------
+-- CHARACTER
+--------------------------------------------------
+local function getChar()
+    return plr.Character or plr.CharacterAdded:Wait()
+end
+local function getHum()
+    return getChar():WaitForChild("Humanoid")
+end
+local function getHRP()
+    return getChar():WaitForChild("HumanoidRootPart")
+end
+
+--------------------------------------------------
+-- TEAM CHECK
+--------------------------------------------------
+local function isEnemy(p)
+    if p == plr then return false end
+
+    if not teamCheckEnabled then
+        return true -- target everyone if team check is OFF
+    end
+
+    if plr.Team then
+        if p.Team then
+            return p.Team ~= plr.Team
+        else
+            return true
+        end
+    else
+        return true
+    end
+end
+
+--------------------------------------------------
+-- GUI
+--------------------------------------------------
+local gui = Instance.new("ScreenGui", game.CoreGui)
+gui.ResetOnSpawn = false
+
+-- TITLE
+local title = Instance.new("TextLabel", gui)
+title.Size = UDim2.fromOffset(320,28)
+title.Position = UDim2.new(0.5,-160,0.25,-50)
+title.BackgroundTransparency = 1
+title.Text = "Unknown"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 22
+title.TextColor3 = Color3.fromRGB(180,0,255)
+
+-- MAIN FRAME
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.fromOffset(320,460)
+main.Position = UDim2.new(0.5,-160,0.25,-200)
+main.BackgroundColor3 = Color3.fromRGB(10,10,10)
+main.Active = true
+main.Draggable = true
+Instance.new("UICorner", main).CornerRadius = UDim.new(0,10)
+
+-- MINIMIZE BUTTON
+local minBtn = Instance.new("TextButton", main)
+minBtn.Size = UDim2.fromOffset(36,24)
+minBtn.Position = UDim2.new(1,-44,0,8)
+minBtn.Text = "—"
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 22
+minBtn.TextColor3 = Color3.new(1,1,1)
+minBtn.BackgroundColor3 = Color3.fromRGB(150,0,220)
+Instance.new("UICorner", minBtn)
+
+-- MINIMIZED TAB
+local mini = Instance.new("TextButton", gui)
+mini.Size = UDim2.fromOffset(140,32)
+mini.Position = UDim2.new(0.5,-70,0.25,0)
+mini.Text = "Unknown"
+mini.Font = Enum.Font.GothamBold
+mini.TextSize = 14
+mini.TextColor3 = Color3.new(1,1,1)
+mini.BackgroundColor3 = Color3.fromRGB(150,0,220)
+mini.Visible = false
+mini.Active = true
+mini.Draggable = true
+Instance.new("UICorner", mini)
+
+minBtn.MouseButton1Click:Connect(function()
+    main.Visible = false
+    title.Visible = false
+    mini.Visible = true
+end)
+
+mini.MouseButton1Click:Connect(function()
+    main.Visible = true
+    title.Visible = true
+    mini.Visible = false
+end)
+
+--------------------------------------------------
+-- UI HELPERS
+--------------------------------------------------
+local START_Y = 44
+local aimbotBtn
+local espBtn
+local espBoxesBtn
+local espTracersBtn
+local teamCheckBtn
+
+local function makeButton(text,y,callback)
+    local b = Instance.new("TextButton", main)
+    b.Size = UDim2.new(1,-20,0,30)
+    b.Position = UDim2.new(0,10,0,y)
+    b.Text = text
+    b.Font = Enum.Font.Gotham
+    b.TextSize = 14
+    b.TextColor3 = Color3.new(1,1,1)
+    b.BackgroundColor3 = Color3.fromRGB(150,0,220)
+    Instance.new("UICorner", b)
+    b.MouseButton1Click:Connect(function()
+        callback(b)
+    end)
+    return b
+end
+
+local function makeLabel(text,y)
+    local l = Instance.new("TextLabel", main)
+    l.Size = UDim2.new(1,-20,0,18)
+    l.Position = UDim2.new(0,10,0,y)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.Font = Enum.Font.Gotham
+    l.TextSize = 13
+    l.TextColor3 = Color3.fromRGB(200,200,200)
+    l.TextXAlignment = Enum.TextXAlignment.Left
+end
+
+local function makeSlider(y,min,max,value,callback)
+    local bar = Instance.new("Frame", main)
+    bar.Size = UDim2.new(1,-20,0,8)
+    bar.Position = UDim2.new(0,10,0,y)
+    bar.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    Instance.new("UICorner", bar)
+
+    local fill = Instance.new("Frame", bar)
+    fill.BackgroundColor3 = Color3.fromRGB(180,0,255)
+    fill.Size = UDim2.new((value-min)/(max-min),0,1,0)
+    Instance.new("UICorner", fill)
+
+    local dragging = false
+    bar.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
+    end)
+    bar.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+
+    UIS.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local pct = math.clamp(
+                (UIS:GetMouseLocation().X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X,
+                0,1
+            )
+            fill.Size = UDim2.new(pct,0,1,0)
+            callback(math.floor(min + pct * (max-min)))
+        end
+    end)
+end
+
+--------------------------------------------------
+-- BUTTONS
+--------------------------------------------------
+aimbotBtn = makeButton("Aimbot: ON",START_Y,function(b)
+    aimbotEnabled = not aimbotEnabled
+    b.Text = "Aimbot: "..(aimbotEnabled and "ON" or "OFF")
+end)
+
+espBtn = makeButton("ESP: ON",START_Y+36,function(b)
+    espEnabled = not espEnabled
+    b.Text = "ESP: "..(espEnabled and "ON" or "OFF")
+end)
+
+espTracersBtn = makeButton("Tracers: ON",START_Y+72,function(b)
+    espTracersEnabled = not espTracersEnabled
+    b.Text = "Tracers: "..(espTracersEnabled and "ON" or "OFF")
+end)
+
+espBoxesBtn = makeButton("ESP Boxes: ON",START_Y+108,function(b)
+    espBoxesEnabled = not espBoxesEnabled
+    b.Text = "ESP Boxes: "..(espBoxesEnabled and "ON" or "OFF")
+end)
+
+teamCheckBtn = makeButton("Team Check: ON", START_Y+144, function(b)
+    teamCheckEnabled = not teamCheckEnabled
+    b.Text = "Team Check: "..(teamCheckEnabled and "ON" or "OFF")
+end)
+
+makeButton("Fly: OFF (X)",START_Y+180,function(b)
+    flyEnabled = not flyEnabled
+    b.Text = "Fly: "..(flyEnabled and "ON" or "OFF").." (X)"
+end)
+
+makeButton("FOV Circle: ON",START_Y+216,function(b)
+    fovCircleEnabled = not fovCircleEnabled
+    b.Text = "FOV Circle: "..(fovCircleEnabled and "ON" or "OFF")
+end)
+
+--------------------------------------------------
+-- SLIDERS
+--------------------------------------------------
+makeLabel("FOV Size",START_Y+250)
+makeSlider(START_Y+270,50,400,fovRadius,function(v) fovRadius = v end)
+
+makeLabel("Walk Speed",START_Y+300)
+makeSlider(START_Y+320,16,200,walkSpeed,function(v) walkSpeed = v end)
+
+makeLabel("Fly Speed",START_Y+350)
+makeSlider(START_Y+370,20,200,flySpeed,function(v) flySpeed = v end)
+
+--------------------------------------------------
+-- FOV CIRCLE
+--------------------------------------------------
+local circle = Drawing.new("Circle")
+circle.Color = Color3.fromRGB(180,0,255)
+circle.Thickness = 1.5
+circle.Filled = false
+
+--------------------------------------------------
+-- ESP
+--------------------------------------------------
+local espCache = {}
+
+local function createESP(p)
+    if p == plr then return end
+    local box = Drawing.new("Square")
+    box.Color = Color3.fromRGB(180,0,255)
+    box.Thickness = 1
+    box.Filled = false
+    box.Visible = false
+
+    local name = Drawing.new("Text")
+    name.Size = 13
+    name.Center = true
+    name.Outline = true
+    name.Color = Color3.new(1,1,1)
+    name.Visible = false
+
+    espCache[p] = {Box = box, Name = name}
+end
+
+local function removeESP(p)
+    if espCache[p] then
+        espCache[p].Box:Remove()
+        espCache[p].Name:Remove()
+        espCache[p] = nil
+    end
+end
+
+for _,p in pairs(Players:GetPlayers()) do createESP(p) end
+Players.PlayerAdded:Connect(createESP)
+Players.PlayerRemoving:Connect(removeESP)
+
+--------------------------------------------------
+-- INPUT (Z = AIMBOT, X = FLY)
+--------------------------------------------------
+UIS.InputBegan:Connect(function(i,gp)
+    if gp then return end
+    if i.KeyCode == Enum.KeyCode.X then
+        flyEnabled = not flyEnabled
+    elseif i.KeyCode == Enum.KeyCode.Z then
+        aimbotEnabled = not aimbotEnabled
+        aimbotBtn.Text = "Aimbot: "..(aimbotEnabled and "ON" or "OFF")
+    end
+end)
+
+--------------------------------------------------
+-- AIMBOT
+--------------------------------------------------
+local function getTarget()
+    local best,dist=nil,math.huge
+    for _,p in pairs(Players:GetPlayers()) do
+        if isEnemy(p) and p.Character and p.Character:FindFirstChild("Head") then
+            local hum = p.Character:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then
+                local pos,on = cam:WorldToViewportPoint(p.Character.Head.Position)
+                if on then
+                    local m = (Vector2.new(pos.X,pos.Y)
+                        - Vector2.new(cam.ViewportSize.X/2,cam.ViewportSize.Y/2)).Magnitude
+                    if m < fovRadius and m < dist then
+                        dist = m
+                        best = p.Character.Head
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+--------------------------------------------------
+-- FLY + MAIN LOOP
+--------------------------------------------------
+local bv,bg
+
+RS.RenderStepped:Connect(function()
+    getHum().WalkSpeed = walkSpeed
+
+    if aimbotEnabled then
+        local t = getTarget()
+        if t then cam.CFrame = CFrame.new(cam.CFrame.Position, t.Position) end
+    end
+
+    circle.Visible = fovCircleEnabled
+    circle.Radius = fovRadius
+    circle.Position = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2)
+
+    -- ESP Drawing
+    for p,d in pairs(espCache) do
+        local char = p.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if espEnabled and espBoxesEnabled and hum and hum.Health > 0 and hrp and isEnemy(p) then
+            local pos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                d.Box.Position = Vector2.new(pos.X-17,pos.Y-25)
+                d.Box.Size = Vector2.new(35,50)
+                d.Box.Visible = true
+
+                d.Name.Text = p.Name
+                d.Name.Position = Vector2.new(pos.X,pos.Y-35)
+                d.Name.Visible = true
+            else
+                d.Box.Visible = false
+                d.Name.Visible = false
+            end
+        else
+            d.Box.Visible = false
+            d.Name.Visible = false
+        end
+    end
+
+    -- ESP Tracers Drawing
+    if espEnabled and espTracersEnabled then
+        local fromPos = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y)
+        for p,d in pairs(espCache) do
+            local char = p.Character
+            local hum = char and char:FindFirstChild("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hum and hum.Health > 0 and hrp and isEnemy(p) then
+                local pos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+                if onScreen then
+                    d.Tracer = d.Tracer or Drawing.new("Line")
+                    d.Tracer.Color = Color3.fromRGB(180,0,255)
+                    d.Tracer.Thickness = 1
+                    d.Tracer.Transparency = 1
+                    d.Tracer.From = fromPos
+                    d.Tracer.To = Vector2.new(pos.X,pos.Y)
+                    d.Tracer.Visible = true
+                elseif d.Tracer then
+                    d.Tracer.Visible = false
+                end
+            elseif d.Tracer then
+                d.Tracer.Visible = false
+            end
+        end
+    else
+        -- hide all tracers if disabled
+        for _,d in pairs(espCache) do
+            if d.Tracer then d.Tracer.Visible = false end
+        end
+    end
+
+    -- FLY
+    if flyEnabled then
+        if not bv then
+            bv = Instance.new("BodyVelocity", getHRP())
+            bv.MaxForce = Vector3.new(1e9,1e9,1e9)
+            bg = Instance.new("BodyGyro", getHRP())
+            bg.MaxTorque = Vector3.new(1e9,1e9,1e9)
+        end
+        local v = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then v += cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then v -= cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then v -= cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then v += cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then v += Vector3.new(0,1,0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then v -= Vector3.new(0,1,0) end
+        bv.Velocity = v * flySpeed
+        bg.CFrame = cam.CFrame
+    else
+        if bv then bv:Destroy() bv=nil end
+        if bg then bg:Destroy() bg=nil end
+    end
+end)
